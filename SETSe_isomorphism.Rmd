@@ -1,0 +1,494 @@
+---
+title: "graph isomorphism"
+author: "Jonathan Bourne"
+date: "09/04/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r}
+
+
+packages <- c("tidyverse", "igraph","readr","readxl", "broom", "stringr", "xtable", "rlang", "latex2exp", "yardstick", "minpack.lm", "ggraph", "patchwork", "rsample", "VGAM", "class", "mclust")
+
+new.packages <- packages[!(packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
+select <- dplyr::select
+arrange <- dplyr::arrange
+map <- purrr::map
+sapply(packages, library, character.only = TRUE)
+
+library(NetworkSpringEmbedding)
+
+#Set up file system to read the correct folders
+PLwd <- "/home/jonno/graph_isomorphism_data"
+CodeFolder <- "/home/jonno/setse_isomorphism"
+SubcodeFolder <- file.path(CodeFolder, "sub_code")
+
+
+#Latex folders for figures tables etc
+LatexFolder <- "/home/jonno/Dropbox/Apps/ShareLaTeX/setse_iso" 
+FiguresFolder <- file.path(LatexFolder, "Figures")
+TablesFolder <- file.path(LatexFolder, "Tables")
+MatricesFolder <- file.path(LatexFolder, "Matrices")
+
+#Load some other useful functions
+list.files("/home/jonno/Useful_PhD__R_Functions", pattern = ".R", full.names = T) %>%
+  walk(~source(.x))
+
+
+```
+
+
+
+#Read first graph
+
+r2 and t2 contain isomorphic pairs.
+the others contain non-isomorphic pairs
+
+
+##r2
+
+These should all match the and show isomorphism
+```{r}
+
+file_path <- list.files(file.path(PLwd, 
+                                  "Benchmark Graphs for Practical Graph Isomorphism", 
+                                  "cfi-rigid-r2-tar/cfi-rigid-r2"), 
+                        full.names = T )
+
+r2_data_path <- file.path(PLwd, "Benchmark Graphs for Practical Graph Isomorphism/graph_type_data", "r2_data.rds")
+if(file.exists(r2_data_path)){
+  r2_data <- readRDS(r2_data_path)
+} else{
+  r2_data <- graph_iso_data_function(file_path)
+saveRDS(r2_data, r2_data_path )
+  
+}
+
+
+embedded_pairs_r2 <-41:42 %>%
+  map(~{
+    
+    graph_rank <- .x
+    
+    g <- read_graph(file = file_path[.x], 
+                    format = "dimacs",
+                    directed = FALSE) %>%
+  iso_spring_prep()
+    
+    temp <- auto_SETSe(g = g, 
+                       force ="force",
+                       flow = "flow",
+                       distance = "distance",
+                       capacity = "edge_capacity",
+                       tstep = 0.005, 
+                       tol = sum(abs(vertex_attr(g, "force")))/10000, 
+                       mass = mean(abs(vertex_attr(g, "force"))),
+                       hyper_max = 50000,
+                       hyper_iters = 1000,
+                       hyper_tol = 0.001,
+                       step_size = 0.1,
+                       verbose = FALSE)
+    
+    temp %>% map(~{ .x %>% mutate(graph_id = basename(file_path[graph_rank]))})
+    
+  }) %>%
+  transpose %>%
+  map(~bind_rows(.x))
+
+
+embedded_pairs_r2$network_dynamics %>%
+  ggplot(aes(x = Iter, y = static_force, colour = graph_id)) + geom_line()
+
+#change the df structre to get the node elevations aligned
+test <- embedded_pairs_r2$node_embeddings %>%
+  select(elevation, graph_id) %>%
+  arrange(elevation) %>%
+  group_by(graph_id) %>%
+  mutate(element_id = 1:n()) %>%
+  ungroup %>%
+  pivot_wider(names_from = graph_id, values_from = elevation) %>%
+  rename(graph_a = 2, graph_b = 3)
+
+#test for equality
+all.equal(test$graph_a, test$graph_b)
+    
+test %>%
+  ggplot(aes(x = element_id, y = graph_a)) + geom_point()
+
+
+```
+
+##d3
+
+
+```{r}
+    
+    g <- read_graph(file = file_path[4], 
+                    format = "dimacs",
+                    directed = FALSE) %>%
+  iso_spring_prep()
+
+set.seed(3)
+g %>%
+  ggraph()+  
+  geom_edge_fan() +
+      geom_node_point(aes(colour = factor(degree(g))), size=3) +
+     # scale_shape_manual(values=c(21, 24, 23)) +
+      guides(fill = "none", shape = "none")
+```
+
+
+```{r}
+
+file_path_d3 <- list.files(file.path(PLwd, 
+                                  "Benchmark Graphs for Practical Graph Isomorphism", 
+                                  "cfi-rigid-t2-tar/cfi-rigid-t2"), 
+                        full.names = T )
+
+
+#check graphs
+d3_data_path <- file.path(PLwd, "Benchmark Graphs for Practical Graph Isomorphism/graph_type_data", "d3_data.rds")
+if(file.exists(d3_data_path)){
+  d3_data <- readRDS(d3_data_path)
+} else{
+  r2_data <- graph_iso_data_function(file_path_d3)
+saveRDS(d3_data, d3_data_path )
+  
+}
+
+
+embedded_pairs_d3 <-c(3,4)%>%
+  map(~{
+    
+    graph_rank <- .x
+    
+    g <- read_graph(file = file_path_d3[.x], 
+                    format = "dimacs",
+                    directed = FALSE) %>%
+  iso_spring_prep()
+    
+    temp <- auto_SETSe(g = g, 
+                       force ="force",
+                       flow = "flow",
+                       distance = "distance",
+                       capacity = "edge_capacity",
+                       tstep = 0.005, 
+                       tol = sum(abs(vertex_attr(g, "force")))/10000, 
+                       mass = mean(abs(vertex_attr(g, "force"))),
+                       hyper_max = 50000,
+                       hyper_iters = 1000,
+                       hyper_tol = 0.001,
+                       step_size = 0.1,
+                       verbose = FALSE)
+    
+    temp %>% map(~{ .x %>% mutate(graph_id = basename(file_path_d3[graph_rank]))})
+    
+  }) %>%
+  transpose %>%
+  map(~bind_rows(.x))
+
+test <- embedded_pairs_d3$node_embeddings %>%
+  select(elevation, graph_id) %>%
+  arrange(elevation) %>%
+  group_by(graph_id) %>%
+  mutate(element_id = 1:n()) %>%
+  ungroup %>%
+  pivot_wider(names_from = graph_id, values_from = elevation) %>%
+  rename(graph_a = 2, graph_b = 3)
+
+
+
+test <- embedded_pairs_d3$edge_embeddings %>%
+  select(graph_id, tension) %>%
+  arrange(tension) %>%
+  group_by(graph_id) %>%
+  mutate(element_id = 1:n()) %>%
+  ungroup %>%
+  pivot_wider(names_from = graph_id, values_from = tension) %>%
+  rename(graph_a = 2, graph_b = 3)
+
+#test for equality
+all.equal(test$graph_a, test$graph_b)
+
+
+ggplot(test, aes(x = element_id, y = graph_a)) +geom_point()
+
+```
+
+
+#all nodes test
+
+```{r}
+
+g <- read_graph(file = file_path[4], 
+                    format = "dimacs",
+                    directed = FALSE)
+
+test_r2 <- vertex_attr(g,"label") %>%
+  map(~{
+    print(.x)
+    node_id <- .x
+    temp_g <- iso_complete_spring_prep(g, target_name = .x)
+        
+    temp <- auto_SETSe(g = temp_g, 
+                       force ="force",
+                       flow = "flow",
+                       distance = "distance",
+                       capacity = "edge_capacity",
+                       tstep = 0.005, 
+                       tol = sum(abs(vertex_attr(temp_g, "force")))/10000, 
+                       mass = mean(abs(vertex_attr(temp_g, "force"))),
+                       hyper_max = 50000,
+                       hyper_iters = 1000,
+                       hyper_tol = 0.001,
+                       step_size = 0.1,
+                       verbose = FALSE)
+    
+    temp %>% map(~{ .x %>% mutate(node_id = node_id)})
+    
+  })
+
+test <- 1:length(test_r2) %>% map_df(~{
+  test_r2[[.x]]$node_embeddings %>%
+    select(node, elevation, node_id) %>%
+    arrange(-elevation) %>%
+    mutate(order = 1:n(),
+    )
+}
+)
+
+test2 <- expand_grid(node_a = unique(test$node_id), node_b =  unique(test$node_id)) %>%
+  filter(node_a != node_b)
+
+test3 <- 1:nrow(test2) %>%
+  map_df(~{
+    
+  node_a  <- test %>% filter(node_id == test2$node_a[.x]) %>% pull(elevation)
+  node_b  <- test %>% filter(node_id == test2$node_b[.x]) %>% pull(elevation)
+
+  automorphism_test <- all.equal(node_a, node_b)
+  print(automorphism_test)
+   tibble(   node_a = test2$node_a[.x],
+      node_b = test2$node_b[.x],
+      automorphic =  is_true(automorphism_test))
+  })
+
+table(test3$automorphic)
+
+auto_counts <- test3 %>%
+  filter(automorphic == T) %>%
+  select(-automorphic) %>%
+  pivot_longer(cols = node_a:node_b, names_to = "nodes_type", values_to = "nodes") %>%
+  group_by(nodes) %>%
+  summarise(counts = n())
+table(auto_counts$counts)
+
+set.seed(3)
+g %>%
+  ggraph()+  
+  geom_edge_fan() +
+      geom_node_point(aes(colour = factor(degree(g))), size=3) +
+     # scale_shape_manual(values=c(21, 24, 23)) +
+      guides(fill = "none", shape = "none")
+
+
+
+
+g2 <- read_graph(file = file_path_d3[4], 
+                    format = "dimacs",
+                    directed = FALSE)
+
+test_d3 <-vertex_attr(g2,"label") %>%
+  map(~{
+    
+    node_id <- .x
+    temp_g <- iso_complete_spring_prep(g2, target_name = .x)
+        
+    temp <- auto_SETSe(g = temp_g, 
+                       force ="force",
+                       flow = "flow",
+                       distance = "distance",
+                       capacity = "edge_capacity",
+                       tstep = 0.005, 
+                       tol = sum(abs(vertex_attr(temp_g, "force")))/10000, 
+                       mass = mean(abs(vertex_attr(temp_g, "force"))),
+                       hyper_max = 50000,
+                       hyper_iters = 1000,
+                       hyper_tol = 0.001,
+                       step_size = 0.1,
+                       verbose = FALSE)
+    
+    temp %>% map(~{ .x %>% mutate(node_id = node_id)})
+    
+  })
+
+
+```
+
+
+#NAUTY benchmarks
+
+##ag series
+
+```{r}
+NAUTY_ag <-"/home/jonno/graph_isomorphism_data/NAUTY benchmarks/undirected_dim/ag/ag"
+
+
+#list.files("/home/jonno/graph_isomorphism_data/NAUTY benchmarks/undirected_dim/ag/ag", full.names = T, pattern = "-8$")
+
+g <- read_graph(file = list.files(NAUTY_ag, full.names = T, pattern = "-4$"), 
+                    format = "dimacs",
+                    directed = FALSE)
+
+test_r2 <- vertex_attr(g,"label") %>%
+  map(~{
+    print(.x)
+    node_id <- .x
+    temp_g <- iso_complete_spring_prep(g, target_name = .x)
+        
+    temp <- auto_SETSe(g = temp_g, 
+                       force ="force",
+                       flow = "flow",
+                       distance = "distance",
+                       capacity = "edge_capacity",
+                       tstep = 0.005, 
+                       tol = sum(abs(vertex_attr(temp_g, "force")))/10000, 
+                       mass = mean(abs(vertex_attr(temp_g, "force"))),
+                       hyper_max = 50000,
+                       hyper_iters = 1000,
+                       hyper_tol = 0.001,
+                       step_size = 0.1,
+                       verbose = FALSE)
+    
+    
+    
+    
+    temp %>% map(~{ .x %>% mutate(node_id = node_id)})
+    
+  })
+
+test <- 1:length(test_r2) %>% map_df(~{
+  test_r2[[.x]]$node_embeddings %>%
+    select(node, elevation, node_id) %>%
+    arrange(-elevation) %>%
+    mutate(order = 1:n(),
+    )
+}
+)
+
+test2 <- expand_grid(node_a = unique(test$node_id), node_b =  unique(test$node_id)) %>%
+  filter(node_a != node_b)
+
+test3 <- 1:nrow(test2) %>%
+  map_df(~{
+    
+  node_a  <- test %>% filter(node_id == test2$node_a[.x]) %>% pull(elevation)
+  node_b  <- test %>% filter(node_id == test2$node_b[.x]) %>% pull(elevation)
+
+  automorphism_test <- all.equal(node_a, node_b)
+  #print(automorphism_test)
+   tibble(   node_a = test2$node_a[.x],
+      node_b = test2$node_b[.x],
+      automorphic =  is_true(automorphism_test))
+  })
+
+table(test3$automorphic)
+
+auto_counts <- test3 %>%
+  filter(automorphic == T) %>%
+  select(-automorphic) %>%
+  pivot_longer(cols = node_a:node_b, names_to = "nodes_type", values_to = "nodes") %>%
+  group_by(nodes) %>%
+  summarise(counts = n())
+table(auto_counts$counts)
+
+set.seed(3)
+g %>%
+  ggraph()+  
+  geom_edge_fan() +
+      geom_node_point(aes(colour = factor(degree(g))), size=3) +
+     # scale_shape_manual(values=c(21, 24, 23)) +
+      guides(fill = "none", shape = "none")
+
+vcount(g)
+
+gcd <- function(x,y) {
+  r <- x%%y;
+  return(ifelse(r, gcd(y, r), y))
+}
+
+
+gcd(121
+  ,132)
+
+```
+
+
+
+#short version
+
+```{r}
+
+g <- read_graph(file = list.files(NAUTY_ag, full.names = T, pattern = "-4$"), 
+                    format = "dimacs",
+                    directed = FALSE)
+
+test1 <- setse_complete_function(g)
+
+test2 <- get_graph_matches(test1, test1)
+
+
+table(test2$counts)
+
+
+test <- 1:length(test_r2) %>% map(~{
+  test_r2[[.x]]$node_embeddings %>%
+    select(elevation) %>%
+    arrange(-elevation)
+}
+) %>%
+  bind_cols %>%
+  as.matrix()
+
+
+#perform cosine similarity
+test2 <- cosine_mat(test, test)
+#check if the differrence between 1 and the cosine similarity is smaller than the machine tolerance
+test3 <- (1-test2) <.Machine$double.eps^0.5
+
+#get the return pairs that are identical
+#then summarise the counts of each node
+#the highest common factor is the automorphism
+test4 <- which(test3==1, arr.ind=TRUE) %>%
+  as_tibble() %>%
+  rename(row  = 1, column = 2) %>%
+  mutate(node_a = rownames(test3)[row],
+         node_b = colnames(test3)[column]) %>%
+  pivot_longer(cols = node_a:node_b, names_to = "node_type", values_to = "focus_node") %>%
+  group_by(focus_node) %>%
+  summarise(counts = n())
+
+table(test4$counts)
+
+mat_a <- mat_b <- test[,1:2]
+
+cosine_mat <- function(mat_a, mat_b){
+  #calculate the dot product of the matrix columns
+ dot_prod_mat <- t(mat_a) %*% mat_b
+
+#the magnitude of the columns
+mag_mat <- sqrt(sum((mat_a[,1])^2))*sqrt(sum((mat_b[,1])^2))
+
+dot_prod_mat/mag_mat
+  
+}
+
+
+
+```
+
