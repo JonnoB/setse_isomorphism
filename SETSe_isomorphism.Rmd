@@ -8,6 +8,20 @@ editor_options:
 ---
 
 
+There are two major areas that need clarification
+
+1: Why does SETSe_data_prep and SETSe_data_prep2 not give the same result?
+  THis is obviously a coding issue. It is important obviously as the results need to be correct. and also because the v2 version is much faster for larger graphs. It also uses much less memory
+  
+  This differences appears to be soley due to different timestep settings. values were opposite signed as the system is probably oscillating.
+
+2: Why are some topologically distinct graphs classed as identical? this is particularly the case with the latin squares
+This get closer to the core of what SETSe does and where it is useful and where it is not.
+
+
+One thing that may help is explicitly marking non matches instead of only marking matches.
+
+#Setup
 ```{r}
 
 
@@ -55,7 +69,7 @@ the others contain non-isomorphic pairs
 These should all match the and show isomorphism
 ```{r}
 
-file_path <- list.files(file.path(PLwd, 
+file_path_r2 <- list.files(file.path(PLwd, 
                                   "Benchmark Graphs for Practical Graph Isomorphism", 
                                   "cfi-rigid-r2-tar/cfi-rigid-r2"), 
                         full.names = T )
@@ -64,18 +78,18 @@ r2_data_path <- file.path(PLwd, "Benchmark Graphs for Practical Graph Isomorphis
 if(file.exists(r2_data_path)){
   r2_data <- readRDS(r2_data_path)
 } else{
-  r2_data <- graph_iso_data_function(file_path)
+  r2_data <- graph_iso_data_function(file_path_r2)
 saveRDS(r2_data, r2_data_path )
   
 }
 
 
-embedded_pairs_r2 <-41:42 %>%
+embedded_pairs_r2 <-3:4 %>%
   map(~{
     
     graph_rank <- .x
     
-    g <- read_graph(file = file_path[.x], 
+    g <- read_graph(file = file_path_r2[.x], 
                     format = "dimacs",
                     directed = FALSE) %>%
   iso_spring_prep()
@@ -85,16 +99,16 @@ embedded_pairs_r2 <-41:42 %>%
                        flow = "flow",
                        distance = "distance",
                        capacity = "edge_capacity",
-                       tstep = 0.005, 
+                       tstep = 0.01, 
                        tol = sum(abs(vertex_attr(g, "force")))/10000, 
                        mass = mean(abs(vertex_attr(g, "force"))),
                        hyper_max = 50000,
-                       hyper_iters = 1000,
+                       hyper_iters = 100,
                        hyper_tol = 0.001,
                        step_size = 0.1,
                        verbose = FALSE)
     
-    temp %>% map(~{ .x %>% mutate(graph_id = basename(file_path[graph_rank]))})
+    temp %>% map(~{ .x %>% mutate(graph_id = basename(file_path_r2[graph_rank]))})
     
   }) %>%
   transpose %>%
@@ -121,6 +135,38 @@ test %>%
   ggplot(aes(x = element_id, y = graph_a)) + geom_point()
 
 
+g_r2 <- read_graph(file = file_path_r2[3], 
+                    format = "dimacs",
+                    directed = FALSE)
+##All nodes test, two identical graphs should be the same as testing each individual graph
+r2_comparison <- 3:4 %>%
+  map(~{
+    g <- read_graph(file = file_path_r2[.x], 
+                    format = "dimacs",
+                    directed = FALSE)
+    
+    Out <- setse_complete_function(g)
+    
+    return(Out)
+  })
+
+test2 <- get_graph_matches(r2_comparison[[2]], r2_comparison[[2]])
+
+test3 <- test2 %>%
+  group_by(counts) %>%
+  summarise(occurances = n())
+
+g_r2 <- read_graph(file = file_path_r2[3], 
+                    format = "dimacs",
+                    directed = FALSE)  
+g_r2 %>%
+  ggraph()+  
+  geom_edge_fan() +
+      geom_node_point(aes(colour = factor(degree(g_r2))), size=3) +
+     # scale_shape_manual(values=c(21, 24, 23)) +
+      guides(fill = "none", shape = "none")
+
+
 ```
 
 ##d3
@@ -133,6 +179,7 @@ test %>%
                     directed = FALSE) %>%
   iso_spring_prep()
 
+automorphisms(g)
 set.seed(3)
 g %>%
   ggraph()+  
@@ -140,6 +187,7 @@ g %>%
       geom_node_point(aes(colour = factor(degree(g))), size=3) +
      # scale_shape_manual(values=c(21, 24, 23)) +
       guides(fill = "none", shape = "none")
+
 ```
 
 
@@ -147,7 +195,7 @@ g %>%
 
 file_path_d3 <- list.files(file.path(PLwd, 
                                   "Benchmark Graphs for Practical Graph Isomorphism", 
-                                  "cfi-rigid-t2-tar/cfi-rigid-t2"), 
+                                  "cfi-rigid-d3-tar/cfi-rigid-d3"), 
                         full.names = T )
 
 
@@ -156,13 +204,13 @@ d3_data_path <- file.path(PLwd, "Benchmark Graphs for Practical Graph Isomorphis
 if(file.exists(d3_data_path)){
   d3_data <- readRDS(d3_data_path)
 } else{
-  r2_data <- graph_iso_data_function(file_path_d3)
+  d3_data <- graph_iso_data_function(file_path_d3)
 saveRDS(d3_data, d3_data_path )
   
 }
 
 
-embedded_pairs_d3 <-c(3,4)%>%
+embedded_pairs_d3 <-c(33,34)%>%
   map(~{
     
     graph_rank <- .x
@@ -170,27 +218,39 @@ embedded_pairs_d3 <-c(3,4)%>%
     g <- read_graph(file = file_path_d3[.x], 
                     format = "dimacs",
                     directed = FALSE) %>%
-  iso_spring_prep()
+  iso_spring_prep() 
     
+    g <- g %>%
+      set.vertex.attribute(., "force", value =vertex_attr(g, "force")/( sum(abs(vertex_attr(g, "force")))/2)) %>%
+      set.edge.attribute(., "k", value = ifelse(edge_betweenness(g)> mean(edge_betweenness(g)),100, 10)) %>%
+    set.edge.attribute(., "distance", value = 100000)
+ # print(automorphisms(g))
     temp <- auto_SETSe(g = g, 
                        force ="force",
                        flow = "flow",
                        distance = "distance",
                        capacity = "edge_capacity",
-                       tstep = 0.005, 
-                       tol = sum(abs(vertex_attr(g, "force")))/10000, 
+                       tstep = 0.1, 
+                       tol = sum(abs(vertex_attr(g, "force")))/100000, 
                        mass = mean(abs(vertex_attr(g, "force"))),
                        hyper_max = 50000,
                        hyper_iters = 1000,
                        hyper_tol = 0.001,
                        step_size = 0.1,
-                       verbose = FALSE)
+                       verbose = TRUE)
     
-    temp %>% map(~{ .x %>% mutate(graph_id = basename(file_path_d3[graph_rank]))})
+    temp %>% map(~{ .x %>% mutate(graph_id = basename(file_path_d3[graph_rank]))
+      })
     
   }) %>%
   transpose %>%
   map(~bind_rows(.x))
+
+test <- embedded_pairs_d3$network_dynamics 
+embedded_pairs_d3$network_dynamics %>%
+  ggplot(aes(x = Iter, y = static_force, colour = graph_id)) + geom_line()
+
+variable_name <- "elevation"
 
 test <- embedded_pairs_d3$node_embeddings %>%
   select(elevation, graph_id) %>%
@@ -199,9 +259,12 @@ test <- embedded_pairs_d3$node_embeddings %>%
   mutate(element_id = 1:n()) %>%
   ungroup %>%
   pivot_wider(names_from = graph_id, values_from = elevation) %>%
-  rename(graph_a = 2, graph_b = 3)
+  rename(graph_a = 2, graph_b = 3) %>%
+  mutate(diff = graph_a - graph_b)
 
 
+
+cosine_mat(test$graph_a %>% as.matrix(), test$graph_b %>% as.matrix)
 
 test <- embedded_pairs_d3$edge_embeddings %>%
   select(graph_id, tension) %>%
@@ -210,11 +273,15 @@ test <- embedded_pairs_d3$edge_embeddings %>%
   mutate(element_id = 1:n()) %>%
   ungroup %>%
   pivot_wider(names_from = graph_id, values_from = tension) %>%
-  rename(graph_a = 2, graph_b = 3)
+  rename(graph_a = 2, graph_b = 3)  %>%
+  mutate(diff = graph_a == graph_b)
 
 #test for equality
 all.equal(test$graph_a, test$graph_b)
 
+
+embedded_pairs_d3 %>%
+  ggplot(aes(x = edge_name, y = tension, colour = graph_id))+ geom_point()
 
 ggplot(test, aes(x = element_id, y = graph_a)) +geom_point()
 
@@ -224,69 +291,29 @@ ggplot(test, aes(x = element_id, y = graph_a)) +geom_point()
 #all nodes test
 
 ```{r}
-
-g <- read_graph(file = file_path[4], 
+g <- read_graph(file = file_path_d3[2], 
                     format = "dimacs",
                     directed = FALSE)
 
-test_r2 <- vertex_attr(g,"label") %>%
+betweenness(g)
+
+d3_comparison <- 3:4 %>%
   map(~{
-    print(.x)
-    node_id <- .x
-    temp_g <- iso_complete_spring_prep(g, target_name = .x)
-        
-    temp <- auto_SETSe(g = temp_g, 
-                       force ="force",
-                       flow = "flow",
-                       distance = "distance",
-                       capacity = "edge_capacity",
-                       tstep = 0.005, 
-                       tol = sum(abs(vertex_attr(temp_g, "force")))/10000, 
-                       mass = mean(abs(vertex_attr(temp_g, "force"))),
-                       hyper_max = 50000,
-                       hyper_iters = 1000,
-                       hyper_tol = 0.001,
-                       step_size = 0.1,
-                       verbose = FALSE)
+    g <- read_graph(file = file_path_d3[.x], 
+                    format = "dimacs",
+                    directed = FALSE)
     
-    temp %>% map(~{ .x %>% mutate(node_id = node_id)})
+    Out <- setse_complete_function(g)
     
+    return(Out)
   })
 
-test <- 1:length(test_r2) %>% map_df(~{
-  test_r2[[.x]]$node_embeddings %>%
-    select(node, elevation, node_id) %>%
-    arrange(-elevation) %>%
-    mutate(order = 1:n(),
-    )
-}
-)
+test2 <- get_graph_matches(d3_comparison[[1]], d3_comparison[[2]])
 
-test2 <- expand_grid(node_a = unique(test$node_id), node_b =  unique(test$node_id)) %>%
-  filter(node_a != node_b)
+test3 <- test2 %>%
+  group_by(counts) %>%
+  summarise(occurances = n())
 
-test3 <- 1:nrow(test2) %>%
-  map_df(~{
-    
-  node_a  <- test %>% filter(node_id == test2$node_a[.x]) %>% pull(elevation)
-  node_b  <- test %>% filter(node_id == test2$node_b[.x]) %>% pull(elevation)
-
-  automorphism_test <- all.equal(node_a, node_b)
-  print(automorphism_test)
-   tibble(   node_a = test2$node_a[.x],
-      node_b = test2$node_b[.x],
-      automorphic =  is_true(automorphism_test))
-  })
-
-table(test3$automorphic)
-
-auto_counts <- test3 %>%
-  filter(automorphic == T) %>%
-  select(-automorphic) %>%
-  pivot_longer(cols = node_a:node_b, names_to = "nodes_type", values_to = "nodes") %>%
-  group_by(nodes) %>%
-  summarise(counts = n())
-table(auto_counts$counts)
 
 set.seed(3)
 g %>%
@@ -295,117 +322,64 @@ g %>%
       geom_node_point(aes(colour = factor(degree(g))), size=3) +
      # scale_shape_manual(values=c(21, 24, 23)) +
       guides(fill = "none", shape = "none")
-
-
-
-
-g2 <- read_graph(file = file_path_d3[4], 
-                    format = "dimacs",
-                    directed = FALSE)
-
-test_d3 <-vertex_attr(g2,"label") %>%
-  map(~{
-    
-    node_id <- .x
-    temp_g <- iso_complete_spring_prep(g2, target_name = .x)
-        
-    temp <- auto_SETSe(g = temp_g, 
-                       force ="force",
-                       flow = "flow",
-                       distance = "distance",
-                       capacity = "edge_capacity",
-                       tstep = 0.005, 
-                       tol = sum(abs(vertex_attr(temp_g, "force")))/10000, 
-                       mass = mean(abs(vertex_attr(temp_g, "force"))),
-                       hyper_max = 50000,
-                       hyper_iters = 1000,
-                       hyper_tol = 0.001,
-                       step_size = 0.1,
-                       verbose = FALSE)
-    
-    temp %>% map(~{ .x %>% mutate(node_id = node_id)})
-    
-  })
-
 
 ```
 
 
 #NAUTY benchmarks
 
+appears to solve the automorphisms of the following series'
+ag, latin square, lattice, k
+
+
+does not appear to solve the following series
+latin square switched edge,
+
+multicomponent, so haven't tried
+KEF
+
+I don't understand why some graphs it is fine to find automorphisms and others not.
+
 ##ag series
 
+This works up to 19 but not at 23, why? Does the system explode? setting a variable time period makes it much slower suggesting that the system is managing to diverge in less steps than it takes to cross the network.
+
+
 ```{r}
-NAUTY_ag <-"/home/jonno/graph_isomorphism_data/NAUTY benchmarks/undirected_dim/ag/ag"
 
-
-#list.files("/home/jonno/graph_isomorphism_data/NAUTY benchmarks/undirected_dim/ag/ag", full.names = T, pattern = "-8$")
-
-g <- read_graph(file = list.files(NAUTY_ag, full.names = T, pattern = "-4$"), 
+NAUTY_ag <-"/home/jonno/graph_isomorphism_data/NAUTY benchmarks/undirected_dim/latin-sw/latin-sw"
+#list.files("/home/jonno/graph_isomorphism_data/NAUTY benchmarks/undirected_dim/ag/ag", full.names = T, pattern = "-$")
+g <- read_graph(file = list.files(NAUTY_ag, full.names = T, pattern = "10-8$"), 
                     format = "dimacs",
                     directed = FALSE)
 
-test_r2 <- vertex_attr(g,"label") %>%
-  map(~{
-    print(.x)
-    node_id <- .x
-    temp_g <- iso_complete_spring_prep(g, target_name = .x)
-        
-    temp <- auto_SETSe(g = temp_g, 
-                       force ="force",
-                       flow = "flow",
-                       distance = "distance",
-                       capacity = "edge_capacity",
-                       tstep = 0.005, 
-                       tol = sum(abs(vertex_attr(temp_g, "force")))/10000, 
-                       mass = mean(abs(vertex_attr(temp_g, "force"))),
-                       hyper_max = 50000,
-                       hyper_iters = 1000,
-                       hyper_tol = 0.001,
-                       step_size = 0.1,
-                       verbose = FALSE)
-    
-    
-    
-    
-    temp %>% map(~{ .x %>% mutate(node_id = node_id)})
-    
-  })
 
-test <- 1:length(test_r2) %>% map_df(~{
-  test_r2[[.x]]$node_embeddings %>%
-    select(node, elevation, node_id) %>%
-    arrange(-elevation) %>%
-    mutate(order = 1:n(),
-    )
-}
-)
+g2 <- read_graph(file = list.files(NAUTY_ag, full.names = T, pattern = "10-10$"), 
+                    format = "dimacs",
+                    directed = FALSE)
 
-test2 <- expand_grid(node_a = unique(test$node_id), node_b =  unique(test$node_id)) %>%
-  filter(node_a != node_b)
 
-test3 <- 1:nrow(test2) %>%
-  map_df(~{
-    
-  node_a  <- test %>% filter(node_id == test2$node_a[.x]) %>% pull(elevation)
-  node_b  <- test %>% filter(node_id == test2$node_b[.x]) %>% pull(elevation)
+automorphisms(g)
+vcount(g)
+ecount(g)
+degree(g)
+betweenness(g)
+test_short <- setse_complete_function(g, max_iter =500)
 
-  automorphism_test <- all.equal(node_a, node_b)
-  #print(automorphism_test)
-   tibble(   node_a = test2$node_a[.x],
-      node_b = test2$node_b[.x],
-      automorphic =  is_true(automorphism_test))
-  })
+test_short2 <- setse_complete_function2(g2, max_iter =50000)
 
-table(test3$automorphic)
+test <- get_graph_matches(test_short, test_short)
+table(test$counts)
 
-auto_counts <- test3 %>%
-  filter(automorphic == T) %>%
-  select(-automorphic) %>%
-  pivot_longer(cols = node_a:node_b, names_to = "nodes_type", values_to = "nodes") %>%
-  group_by(nodes) %>%
-  summarise(counts = n())
-table(auto_counts$counts)
+
+test2 <-(abs(1-cosine_mat(test_short, test_short2)))
+
+ test3 <-get_graph_matches(test2, test2)
+
+as_tibble(test_short2) %>% mutate(node_1 = rownames(test_short2)) %>% 
+  pivot_longer(cols = -node_1, names_to = "node_2", values_to = "values") %>%
+ggplot(aes(x = node_1, y = node_2, fill = factor(values))) + 
+  geom_raster()
 
 set.seed(3)
 g %>%
@@ -414,81 +388,421 @@ g %>%
       geom_node_point(aes(colour = factor(degree(g))), size=3) +
      # scale_shape_manual(values=c(21, 24, 23)) +
       guides(fill = "none", shape = "none")
-
 vcount(g)
+
 
 gcd <- function(x,y) {
   r <- x%%y;
   return(ifelse(r, gcd(y, r), y))
 }
 
-
 gcd(121
   ,132)
+
+  
+  full_list <- vertex_attr(g,"label") %>%
+    map(~{
+      print(.x)
+      node_id <- .x
+      temp_g <- iso_complete_spring_prep(g, target_name = .x)
+      
+      temp <- SETSe2(temp_g, 
+                    force ="force",
+                    flow = "flow",
+                    distance = "distance",
+                    capacity = "edge_capacity",
+                    edge_name = "edge_name",
+                    k ="k",
+                    tstep = 0.1/vcount(g), 
+                    mass = mean(abs(vertex_attr(temp_g, "force"))), 
+                    max_iter =5e5,#vcount(g)*2 , 
+                    coef_drag = 1, 
+                    tol = sum(abs(vertex_attr(temp_g, "force")))/10000,
+                    sparse = sparse,
+                    two_node_solution = FALSE,
+                    include_edges = TRUE,
+                    sample = 1)
+      
+      
+      
+      
+      temp %>% map(~{ .x %>% mutate(node_id = node_id)})
+      
+    })
+
+  
+  #extract only the elevation data from the embedding
+  Out <- 1:length(full_list) %>% map(~{
+    full_list[[.x]]$node_embeddings %>%
+      select(elevation) %>%
+      arrange(-elevation)
+  }
+  ) %>%
+    bind_cols %>%
+    as.matrix()
+  
+    Out2 <- 1:length(full_list) %>% map(~{
+    full_list[[.x]]$edge_embeddings %>%
+      select(tension) %>%
+      arrange(-tension)
+  }
+  ) %>%
+    bind_cols %>%
+    as.matrix()
+      
+      
+temp$network_dynamics %>%
+  ggplot(aes(x = t, y = static_force)) + geom_line()
+
+temp$node_embeddings %>%
+  ggplot(aes(x = node, y = elevation)) + geom_point()
+
+temp$edge_embeddings %>%
+  ggplot(aes(x = edge_name, y = tension)) + geom_point()
+
+
+
+test_nodes <- get_graph_matches(Out, Out)
+table(test_nodes$counts)
+
+test_edges <- get_graph_matches(Out2, Out2)
+table(test_edges$counts)
+
+tests <- temp$edge_embeddings
+
+table(Out2[,20])
+table(temp$edge_embeddings$tension)
+table(temp$node_embeddings$elevation)
+
+#create an adjacency matrix with node order by elevation and ties broken by the col/row sum of tension?
+```
+
+#MIVIA
+
+This loads data from the MIVIA dataset
+```{r}
+binary_folder <-"/home/jonno/graph_isomorphism_data/graphsdb/iso_m2Dr2/iso/m2D/m2Dr2"
+
+
+#This is an iso morphic fraph small suize, with 16 nodes and is the A graph (first) of series 00
+binary_files <- list.files(binary_folder, full.names = T, pattern = "iso_m2Dr2_s16.A01")
+
+load_mivia <- function(file_path, n = 10000){
+  
+  #The n value
+  file_dat <-readBin(con = file_path, what = "int", size = 2 , n= n, #signed = TRUE,
+                     endian = "little")
+  
+  
+  total_nodes <- file_dat[1]
+  
+  Adj <- matrix(rep(0, total_nodes^2), nrow = total_nodes)
+  
+  i <-2
+  node_number <- 1
+  while(i < length(file_dat)){
+    
+    
+    number_of_edges <- file_dat[i]
+    
+    # print(paste0("node ", node_number, ", i ", i, ", total edges ", number_of_edges))
+    
+    
+    if(number_of_edges>0){
+      # print((i+1):(i+number_of_edges))
+      edge_links <- file_dat[(i+1):(i+number_of_edges)] + 1 #the nodes are indexed to 0
+      
+      #print(edge_links)
+      Adj[node_number, edge_links] <-1
+    }
+    
+    node_number <- node_number + 1 # The next 
+    i <- i + number_of_edges +1
+  }
+
+  g <- as.data.frame(which(Adj==1, arr.ind = T)) %>%
+  graph_from_data_frame(., directed = FALSE)
+  
+return(g)    
+  
+}
+
+test1 <- load_mivia(file_path = list.files(binary_folder, full.names = T, pattern = "iso_m2Dr2_s16.A00"))
+test2 <- load_mivia(list.files(binary_folder, full.names = T, pattern = "iso_r005_m200.B50"))
+
+vcount(test2)
+ecount(test2)
+
+test1 %>% automorphisms()
+  plot
+
+test1 %>% plot
+
+length(test)
 
 ```
 
 
 
-#short version
+#Latin square test
+
+There are some pretty wierd results going on at the moment. 
+I am going to do a test with a simple latin square and a latin square with some of the edges changed to see what happens.
+
+
+It may be possible to set the distance, time step and force as a function of the nodes and edges such that after d+1 time steps the height of the nodes is not minimal and so the difference between two equally sized graph is not smaller than the machine double epsilon resolution
 
 ```{r}
 
-g <- read_graph(file = list.files(NAUTY_ag, full.names = T, pattern = "-4$"), 
-                    format = "dimacs",
-                    directed = FALSE)
+base_square <-matrix(1:9, nrow = 3, byrow = T)
 
-test1 <- setse_complete_function(g)
+latin_square <- matrix(0, nrow = 9, ncol = 9)
+colnames(latin_square) <- 1:9
 
-test2 <- get_graph_matches(test1, test1)
+base_square
 
-
-table(test2$counts)
-
-
-test <- 1:length(test_r2) %>% map(~{
-  test_r2[[.x]]$node_embeddings %>%
-    select(elevation) %>%
-    arrange(-elevation)
-}
-) %>%
-  bind_cols %>%
-  as.matrix()
-
-
-#perform cosine similarity
-test2 <- cosine_mat(test, test)
-#check if the differrence between 1 and the cosine similarity is smaller than the machine tolerance
-test3 <- (1-test2) <.Machine$double.eps^0.5
-
-#get the return pairs that are identical
-#then summarise the counts of each node
-#the highest common factor is the automorphism
-test4 <- which(test3==1, arr.ind=TRUE) %>%
-  as_tibble() %>%
-  rename(row  = 1, column = 2) %>%
-  mutate(node_a = rownames(test3)[row],
-         node_b = colnames(test3)[column]) %>%
-  pivot_longer(cols = node_a:node_b, names_to = "node_type", values_to = "focus_node") %>%
-  group_by(focus_node) %>%
-  summarise(counts = n())
-
-table(test4$counts)
-
-mat_a <- mat_b <- test[,1:2]
-
-cosine_mat <- function(mat_a, mat_b){
-  #calculate the dot product of the matrix columns
- dot_prod_mat <- t(mat_a) %*% mat_b
-
-#the magnitude of the columns
-mag_mat <- sqrt(sum((mat_a[,1])^2))*sqrt(sum((mat_b[,1])^2))
-
-dot_prod_mat/mag_mat
+for( i in 1:9){
+  
+  row_col_id <-which(base_square ==i, arr.ind = T)
+  
+  latin_square[i,base_square[,row_col_id[,2]]] <- 1
+  
+  latin_square[base_square[row_col_id[,1],],i] <- 1
+  
   
 }
 
+diag(latin_square) <- 0
 
+
+g_latin <- graph_from_adjacency_matrix(latin_square, mode = "undirected")
+
+latin_square_sw <- latin_square
+
+latin_square_sw[1,2] <- 0
+latin_square_sw[2,1] <-0
+
+latin_square_sw[1,5] <- 1
+latin_square_sw[5,1] <-1
+
+latin_square_sw[5,6] <- 0
+latin_square_sw[6,5] <- 0
+
+latin_square_sw[2,6] <- 1
+latin_square_sw[6,2] <- 1
+
+latin_square_sw2 <- latin_square_sw
+
+latin_square_sw2[4,5] <- 0
+latin_square_sw2[5,4] <- 0
+
+latin_square_sw2[4,8] <- 1
+latin_square_sw2[8,4] <-1
+
+latin_square_sw2[8,9] <- 0
+latin_square_sw2[9,8] <- 0
+
+latin_square_sw2[5,9] <- 1
+latin_square_sw2[9,5] <- 1
+
+
+
+#create the latin sqaure with 
+g_latin_sw <- graph_from_adjacency_matrix(latin_square_sw, mode = "undirected")
+g_latin_sw2 <- graph_from_adjacency_matrix(latin_square_sw2, mode = "undirected")
+
+vcount(g_latin)
+vcount(g_latin_sw)
+vcount(g_latin_sw2)
+
+ecount(g_latin)
+ecount(g_latin_sw)
+ecount(g_latin_sw2)
+
+degree(g_latin)
+degree(g_latin_sw)
+degree(g_latin_sw2)
+
+#the only change is betweeness
+betweenness(g_latin)
+betweenness(g_latin_sw)
+betweenness(g_latin_sw2)
+
+diameter(g_latin)
+diameter(g_latin_sw)
+diameter(g_latin_sw2)
+
+#The squares match for small numbers of iterations but not when the iterations become large.
+#This doesn't make any sense, they should not match for all values 
+#It is worth checking the strain and dynamics of the system
+test <- setse_complete_function(g_latin, max_iter =vcount(g_latin)*10, name_attr = "name")
+test_v1
+test2 <- setse_complete_function(g_latin_sw, max_iter =vcount(g_latin_sw)*10, name_attr = "name")
+
+test3 <- setse_complete_function(g_latin_sw2, max_iter =vcount(g_latin_sw2)*10, name_attr = "name")
+
+#Also the matches change dependent of which way round you test. 
+#It is wierd and seems wrong
+test_out <- get_graph_matches(test2, test)
+
+abs(1-cosine_mat(test, test)) <= .Machine$double.eps
+
+set.seed(3)
+g_latin_sw2 %>%
+  ggraph()+  
+  geom_edge_fan() +
+      geom_node_point( size=3) +
+     # scale_shape_manual(values=c(21, 24, 23)) +
+      guides(fill = "none", shape = "none")
+
+
+#find appropriate parameters for the graphs using autosetse
+
+parameter_test <- 1:3 %>% map(~{
+
+  g <- list(g_latin, g_latin_sw, g_latin_sw2)[[.x]]
+  
+  graph_type <- c("latin", "latin_sw","latin_sw2")[.x]
+  
+  full_list <- 1 %>%
+    map(~{
+      print(.x)
+      node_id <- .x
+      temp_g <- iso_complete_spring_prep(g, target_name = .x) %>%
+        set.edge.attribute(., "distance", value = 1)
+      
+      temp <- auto_SETSe(temp_g, 
+                    force ="force",
+                    flow = "flow",
+                    distance = "distance",
+                    capacity = "edge_capacity",
+                    edge_name = "edge_name",
+                    k ="k",
+                    tstep =0.1, 
+                    mass = mean(abs(vertex_attr(temp_g, "force"))), 
+                    max_iter = 1e5, 
+                    tol = 0,#sum(abs(vertex_attr(temp_g, "force")))/50000,
+                    hyper_tol = 0.001,
+                    verbose = T
+                   ) 
+      
+    }) %>% transpose %>%  map(~{.x %>% bind_rows() %>% mutate(#node_id = node_id,
+                                    graph = graph_type)})
+  
+  
+}) %>% transpose %>%  map(~{.x %>% bind_rows()})
+
+
+parameter_test$network_dynamics %>%
+  ggplot(aes(x = log10(Iter), y = log10(static_force), colour = graph)) + geom_line()
+
+parameter_test$memory_df %>%
+    ggplot(aes(x = common_drag_iter, y = error, colour = graph)) + geom_line()
+
+#one vs all for all three graphs
+test_expanded <- 1:3 %>% map_df(~{
+
+  g <- list(g_latin, g_latin_sw, g_latin_sw2)[[.x]]
+  
+  graph_type <- c("latin", "latin_sw","latin_sw2")[.x]
+  
+  full_list <- vertex_attr(g,"name") %>%
+    map_df(~{
+      print(.x)
+      node_id <- .x
+      temp_g <- iso_complete_spring_prep(g, target_name = .x)  %>%
+        set.edge.attribute(., "distance", value = 1)
+      
+      temp <- SETSe_expanded(temp_g, 
+                    force ="force",
+                    flow = "flow",
+                    distance = "distance",
+                    capacity = "edge_capacity",
+                    edge_name = "edge_name",
+                    k ="k",
+                    tstep =0.1, 
+                    mass = mean(abs(vertex_attr(temp_g, "force"))), 
+                    max_iter = 50e4, 
+                    coef_drag = 12, 
+                    tol = sum(abs(vertex_attr(temp_g, "force")))/100000,
+                    sparse = FALSE,
+                    two_node_solution = FALSE#,
+                   # include_edges = TRUE,
+                   # sample = 1
+                   ) %>% mutate(node_id = node_id,
+                                    graph = graph_type)
+      
+    })# %>% transpose# %>%  map(~{.x %>% bind_rows()})
+  
+  
+})# %>% transpose %>%  map(~{.x %>% bind_rows()})
+
+automorphisms(g_latin)
+automorphisms(g_latin_sw)
+automorphisms(g_latin_sw2)
+
+test_expanded %>%
+  filter((Iter %% 1)==0,
+        Iter<100,
+         node_id ==5
+         ) %>%
+  ggplot(aes(x = Iter, y = elevation, colour = factor(graph))) +geom_line() +
+  facet_wrap(~node)
+
+
+test_expanded %>%
+  filter((Iter %% 1)==0,
+#         Iter<1000,
+         node_id ==5
+         )
+
+#This graph shows that SETse can distinguish between different graphs
+#and also shows the resolution problem
+
+test_expanded %>%
+  filter((Iter %% 1)==0,
+         Iter<100,
+  #       node_id ==8
+         ) %>%
+  group_by(graph, Iter, node_id) %>%
+  summarise_if(is.numeric, ~mean(abs(.))) %>%
+  ggplot(aes(x = Iter, y = elevation, colour = graph))+ geom_line() +
+  facet_wrap(~node_id)+
+  coord_cartesian(y = c(0.32, 0.37), x = c(40, 100)) +
+  labs(title = "Mean absolute node elevation, by focal node and graph type, for\nlatin square n= 3 and variants",
+       x = "Iterations in thousands") +
+  theme(axis.text.x = element_text(angle = 45))
+
+
+test <- test_expanded %>%
+  filter(#(Iter %% 10)==0,
+         Iter<100,
+  #       node_id ==8
+         ) %>%
+  arrange(graph) %>%
+  group_by(Iter, node_id, node) %>%
+  summarise_if(.,is.numeric, ~log10(first(.)+1)-log10(last(.)+1))
+
+# %>%
+#  summarise_if(.,is.numeric, ~first(.)-last(.))
+
+
+test2 <-test_expanded %>%
+  filter(
+    (Iter %% 10)==0,
+    Iter <=2000,
+    graph != "latin_sw2") %>%
+  arrange(graph) %>%
+  group_by(Iter, node_id, node) %>%
+  summarise_if(.,is.numeric, ~log10(first(.)+1)-log10(last(.)+1))
+
+test %>%
+  ggplot(aes(x = Iter, y = log10((elevation)), colour = as.factor(node))) + geom_line()+
+  facet_wrap(~node_id)
+
+
+test3 <- test2 %>%
+  filter(Iter ==200)
 
 ```
 
